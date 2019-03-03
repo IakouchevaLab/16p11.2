@@ -1,0 +1,40 @@
+## Patricia Moran, 02/27/2019
+## Code to perform STAR alignments + RSEM quantification
+#!/bin/bash
+#SBATCH --job-name="RNA-Seq"
+#SBATCH --output="RNA-Seq.out"
+#SBATCH --partition=shared
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=12
+#SBATCH --export=ALL
+#SBATCH -t 15:00:00
+module load python
+module load samtools
+
+STAR_INDEX =	/pmlosada/references/STAR_index
+RSEM_INDEX =	pmlosada/references/RSEM_index
+REFERENCE_GENOME =	/pmlosada/references/GRCh37.p13.genome.fa
+ANNOTATION_FILE	= /pmlosada/references/gencode.v19.annotation.gtf
+FASTQDIR = /pmlosada/16p11.2-RNASeq/iPSC/CTL/11C1
+F1 = $FASTQDIR/CTL_11C1_R1.fastq
+F2 = $FASTQDIR/CTL_11C1_R2.fastq
+S=CTL_11C1
+
+#RUN CUTADAPT
+
+~/bin/cutadapt --minimum-length=5 --output $F1.trimmed.fastq --paired-output $F2.trimmed.fastq -A XXX -q 30  $F1 $F2
+>> $FASTQDIR/Cutadapt.out
+
+
+#RUN STAR
+
+~/bin/STAR --genomeDir $STAR_INDEX --runThreadN 12 --readFilesIn $F1.trimmed.fastq $F2.trimmed.fastq  --outFilterType BySJout --outFilterMultimapNmax 20 --alignSJoverhangMin 8 --alignSJDBoverhangMin 1 --outFilterMismatchNmax 999 --alignIntronMin 20 --alignIntronMax 1000000 --alignMatesGapMax 1000000 --outSAMunmapped Within --outSAMattributes NH HI AS NM MD --outFilterMismatchNoverReadLmax 0.04 --sjdbScore 1 --outSAMtype BAM SortedByCoordinate --quantMode TranscriptomeSAM  --outFileNamePrefix $FASTQDIR/$S.STAR
+cat <( samtools view -H $FASTQDIR/$S.STARAligned.toTranscriptome.out.bam ) <( samtools view -@ 1 $FASTQDIR/$S.STARAligned.toTranscriptome.out.bam | awk '{printf "%s", $0 " "; getline; print}' | sort -S 10000000 -T ./ | tr ' ' '\n' ) | samtools view -@ 1 -bS - > $FASTQDIR/$S.STARAligned.toTranscriptome.out_sorted.bam
+
+#RUN RSEM
+
+~/bin/RSEM-1.3.0/rsem-calculate-expression  -p 12 --paired-end --bam --estimate-rspd --calc-ci --no-bam-output --ci-memory 1000 --seed 12345 --forward-prob 0 $FASTQDIR/$S.STARAligned.toTranscriptome.out_sorted.bam  $RSEM_INDEX  $FASTQDIR/$S.RSEM_Quant/$S.RSEM_Quant.rsem >& $FASTQDIR/Log_out.rsem
+
+
+
+

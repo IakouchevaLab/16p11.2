@@ -1,0 +1,39 @@
+#!/bin/bash
+#SBATCH --job-name="QC-Seq"
+#SBATCH --output="QC.out"
+#SBATCH --partition=shared
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=12
+#SBATCH --export=ALL
+#SBATCH -t 5:00:00
+module load R
+module load picard
+module load subread
+export PATH=/bin/bowtie2:$PATH
+
+DIR = /pmlosada/16p11.2-RNASeq/iPSC/CTL/11C1
+REFERENCE_GENOME =	/pmlosada/references/GRCh37.p13.genome.fa
+REFERENCES = /pmlosada/references
+ANNOTATION_FILE	= /pmlosada/references/gencode.v19.annotation.gtf
+S=CTL_11C1
+
+
+# RUN PICARD TOOLS
+java -jar /bin/picard/picard.jar CollectMultipleMetrics  I=$DIR/$S.STARAligned.sortedByCoord.out.bam  ASSUME_SORTED=TRUE   O=$DIR/$S.multiple_metrics.txt  R=$REFERENCE_GENOME
+java -jar /bin/picard/picard.jar MarkDuplicates  I=$DIR/$S.STARAligned.sortedByCoord.out.bam    O=$DIR/$S.marked_duplicates.bam  M=$DIR/$S.marked_dup_metrics.txt
+java -jar /bin/picard/picard.jar CollectRnaSeqMetrics I=$DIR/$S.STARAligned.sortedByCoord.out.bam O=$DIR/$S.RNA_Metrics.txt REF_FLAT=$REFERENCES/refFlat.txt STRAND=SECOND_READ_TRANSCRIPTION_STRAND  RIBOSOMAL_INTERVALS=$REFERENCES/rRNA.txt
+java -jar /bin/picard/picard.jar  CollectInsertSizeMetrics I=$DIR/$S.STARAligned.sortedByCoord.out.bam   O=$DIR/$S.insert_size_metrics.txt H=$DIR/$S.insert_size_histogram.pdf
+java -jar /bin/picard/picard.jar CollectAlignmentSummaryMetrics R=$REFERENCE_GENOME INPUT=$DIR/$S.STARAligned.sortedByCoord.out.bam  OUTPUT=$DIR/$S.CollectalignmentSummaryMetricsoutput.txt
+java -jar /bin/picard/picard.jar CollectGcBiasMetrics  I=$DIR/$S.STARAligned.sortedByCoord.out.bam  O=$DIR/$S.GC_bias_metrics.txt CHART=$DIR/$S.GC_bias_metrics.pdf S=$DIR/$S.summary_metrics.txt  R=$REFERENCE_GENOME
+
+# RUN FeatureCounts
+featureCounts -p -C -t exon -g gene_id -M --fraction -s 2 -a $ANNOTATION_FILE	-o $DIR/$S.counts.txt  $DIR/$S.STARAligned.sortedByCoord.out.bam >> $DIR/$S.featureCounts.out
+
+# RUN RNA-SeQC
+samtools index $DIR/$S.STARAligned.sortedByCoord.out.bam  $DIR/$S.STARAligned.sortedByCoord.out.bam.bai
+java -jar ~/.local/bin/RNA-SeQC_v1.1.8.jar -n 1000 -s "TestID|$DIR/$S.STARAligned.sortedByCoord.out.bam|TestDesc" -t  $ANNOTATION_FILE -r $REFERENCE_GENOME -o $DIR/$S.testReport/ >> $DIR/$S.RNA-SeQC.out
+
+# RUN Mt_percentage
+
+echo "100 * $(samtools view -c $DIR/$S.STARAligned.sortedByCoord.out.bam  chrM) / $(samtools view -c $DIR/$S.STARAligned.sortedByCoord.out.bam )" | bc -l > $DIR/$S.Mt.txt
+
